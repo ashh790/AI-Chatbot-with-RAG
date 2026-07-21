@@ -1,0 +1,29 @@
+# Secrets -- never commit these
+.env
+*.pem
+*.key
+
+# Vector store (regenerate with `python ingest.py`)
+vectorstore/
+chroma_db/
+
+# Your source documents -- remove this line if you want them tracked
+docs/*
+!docs/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

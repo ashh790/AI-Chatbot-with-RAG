@@ -1,0 +1,16 @@
+Chatbot/
+├── app.py              entrypoint
+├── ingest.py           document -> vector store CLI
+├── docs/               drop your PDFs and text files here
+├── vectorstore/        generated Chroma index (gitignored)
+├── templates/
+│   └── index.html      chat UI
+└── chatbot/
+    ├── __init__.py     app factory
+    ├── config.py       env-driven settings
+    ├── routes.py       HTTP endpoints
+    ├── services.py     chat orchestration + tool loop
+    ├── utils.py        vector store + chunking
+    ├── tools.py        tool schemas + dispatch
+    ├── memory.py       per-session history
+    └── prompts.py      system prompt assembly

@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>AI Chatbot with RAG</title>
+    <style>
+        :root {
+            /* Neutrals carry a slight blue cast -- pure grey is what reads
+               "default stylesheet". */
+            --bg: #0a0c11;
+            --surface: #11141b;
+            --surface-2: #171b24;
+            --hover: #1d222d;
+            --border: #212734;
+            --border-soft: #191e28;
+            --text: #e9ebf0;
+            --text-2: #a2abbd;
+            --muted: #6b7484;
+            --accent: #7c8cff;
+            --accent-soft: rgba(124,140,255,.14);
+            --accent-fg: #0a0c11;
+            --danger: #ff7b72;
+            --danger-soft: rgba(255,123,114,.12);
+            --ok: #4ade80;
+            --ring: rgba(124,140,255,.35);
+
+            --r-sm: 8px;
+            --r-md: 12px;
+            --r-lg: 16px;
+            --r-full: 999px;
+            --tap: 44px;
+        }
+        :root[data-theme="light"] {
+            --bg: #fafafc;
+            --surface: #ffffff;
+            --surface-2: #f4f5f8;
+            --hover: #eceef3;
+            --border: #e4e7ee;
+            --border-soft: #eef0f4;
+            --text: #0f1219;
+            --text-2: #4a5265;
+            --muted: #858c9c;
+            --accent: #5b5ce0;
+            --accent-soft: rgba(91,92,224,.10);
+            --accent-fg: #ffffff;
+            --danger: #d64545;
+            --danger-soft: rgba(214,69,69,.09);
+            --ok: #16a34a;
+            --ring: rgba(91,92,224,.28);
+        }
+        @media (prefers-color-scheme: light) {
+            :root[data-theme="auto"] {
+                --bg: #fafafc; --surface: #ffffff; --surface-2: #f4f5f8; --hover: #eceef3;
+                --border: #e4e7ee; --border-soft: #eef0f4; --text: #0f1219; --text-2: #4a5265;
+                --muted: #858c9c; --accent: #5b5ce0; --accent-soft: rgba(91,92,224,.10);
+                --accent-fg: #ffffff; --danger: #d64545; --danger-soft: rgba(214,69,69,.09);
+                --ok: #16a34a; --ring: rgba(91,92,224,.28);
+            }
+        }
+
+        * { box-sizing: border-box; }
+        /* The page itself is the scroll container -- no inner overflow box.
+           That's what makes the whole window scroll, gives smooth behaviour,
+           and lets mobile browsers collapse their URL bar on scroll. */
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            min-height: 100dvh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -webkit-text-size-adjust: 100%;
+            transition: background-color .18s ease, color .18s ease;
+        }
+
+        .shell { display: grid; grid-template-columns: minmax(0,1fr) 296px; min-height: 100dvh; }
+        @media (max-width: 940px) { .shell { grid-template-columns: minmax(0,1fr); } }
+
+        /* ---- main column ---- */
+        .main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; }
+
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 14px clamp(16px, 4vw, 32px);
+            border-bottom: 1px solid var(--border-soft);
+            position: sticky; top: 0; z-index: 5;
+            background: color-mix(in srgb, var(--bg) 88%, transparent);
+            backdrop-filter: blur(12px);
+        }
+        .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em; }
+        .brand .mark {
+            width: 26px; height: 26px; border-radius: 8px;
+            background: var(--accent); color: var(--accent-fg);
+            display: grid; place-items: center; font-size: 13px; font-weight: 700;
+        }
+        .top-actions { display: flex; align-items: center; gap: 8px; }
+
+        .pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 12px; color: var(--text-2);
+            background: var(--surface-2); border: 1px solid var(--border-soft);
+            padding: 5px 10px; border-radius: var(--r-full); white-space: nowrap;
+        }
+        .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+        .pill.live .dot { background: var(--ok); }
+        .pill.demo .dot { background: #eab308; }
+        @media (max-width: 620px) { .pill .label { display: none; } }
+
+        .iconbtn {
+            width: 34px; height: 34px; display: grid; place-items: center;
+            background: transparent; color: var(--text-2);
+            border: 1px solid var(--border); border-radius: var(--r-sm);
+            cursor: pointer; font-size: 15px; padding: 0; line-height: 1;
+            transition: background .15s, color .15s, border-color .15s;
+        }
+        .iconbtn:hover { background: var(--hover); color: var(--text); }
+        .iconbtn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+        @media (max-width: 940px) { .iconbtn.kb-toggle { display: grid; } }
+        @media (min-width: 941px) { .iconbtn.kb-toggle { display: none; } }
+
+        /* ---- thread ---- */
+        .thread { flex: 1; padding: 0 clamp(16px,4vw,32px); }
+        .thread-inner { max-width: 720px; margin: 0 auto; padding: 26px 0 8px; }
+
+        .turn { display: flex; gap: 12px; margin-bottom: 22px; animation: rise .22s ease both; }
+        @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+        .avatar {
+            flex: 0 0 28px; width: 28px; height: 28px; border-radius: 8px;
+            display: grid; place-items: center; font-size: 11px; font-weight: 600;
+            margin-top: 2px;
+        }
+        .turn.bot .avatar { background: var(--accent); color: var(--accent-fg); }
+        .turn.user .avatar { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+
+        .bubble { min-width: 0; flex: 1; }
+        .meta { font-size: 12px; color: var(--muted); margin-bottom: 3px; display: flex; align-items: center; gap: 7px; }
+        .text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+        .turn.user .text {
+            background: var(--surface-2); border: 1px solid var(--border-soft);
+            padding: 9px 13px; border-radius: var(--r-md); display: inline-block;
+        }
+        .turn.err .text { background: var(--danger-soft); color: var(--danger); padding: 9px 13px; border-radius: var(--r-md); }
+        .tag {
+            font-size: 10px; font-weight: 600; letter-spacing: .04em;
+            color: var(--accent); background: var(--accent-soft);
+            padding: 2px 6px; border-radius: 5px;
+        }
+
+        /* ---- empty state ---- */
+        .empty { max-width: 720px; margin: 0 auto; padding: clamp(36px,9vh,84px) 0; text-align: center; }
+        .empty h2 { font-size: clamp(21px,3.4vw,27px); font-weight: 600; letter-spacing: -.02em; margin: 0 0 8px; }
+        .empty p { color: var(--text-2); margin: 0 0 22px; font-size: 14px; }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        .chip {
+            font: inherit; font-size: 13px; color: var(--text-2);
+            background: var(--surface); border: 1px solid var(--border);
+            padding: 8px 13px; border-radius: var(--r-full); cursor: pointer;
+            transition: background .15s, color .15s, border-color .15s;
+        }
+        .chip:hover { background: var(--hover); color: var(--text); border-color: var(--accent); }
+
+        /* ---- composer ---- */
+        .composer-wrap {
+            position: sticky; bottom: 0;
+            padding: 10px clamp(16px,4vw,32px) max(14px, env(safe-area-inset-bottom));
+            background: linear-gradient(to top, var(--bg) 62%, transparent);
+        }
+        .composer {
+            max-width: 720px; margin: 0 auto;
+            display: flex; align-items: flex-end; gap: 8px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--r-lg); padding: 7px;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+        .attach {
+            flex: 0 0 auto; width: 34px; height: 34px; border-radius: var(--r-sm);
+            border: none; background: transparent; color: var(--text-2);
+            cursor: pointer; display: grid; place-items: center;
+            font-size: 21px; line-height: 1; padding: 0; font-weight: 300;
+            transition: background .15s, color .15s;
+        }
+        .attach:hover { background: var(--hover); color: var(--text); }
+        .attach:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+        #userInput {
+            flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text);
+            font: inherit; font-size: 16px;   /* <16px makes iOS zoom on focus */
+            resize: none; outline: none; padding: 8px 0; max-height: 168px; line-height: 1.5;
+        }
+        #userInput::placeholder { color: var(--muted); }
+        .send {
+            flex: 0 0 auto; width: 34px; height: 34px; border-radius: var(--r-sm);
+            border: none; background: var(--accent); color: var(--accent-fg);
+            cursor: pointer; display: grid; place-items: center; font-size: 15px; padding: 0;
+            transition: opacity .15s, transform .1s;
+        }
+        .send:disabled { opacity: .35; cursor: not-allowed; }
+        .send:not(:disabled):active { transform: scale(.94); }
+        .composer-foot {
+            max-width: 720px; margin: 7px auto 0;
+            display: flex; justify-content: space-between; gap: 10px;
+            font-size: 11.5px; color: var(--muted);
+        }
+        .linkbtn { background: none; border: none; color: var(--muted); font: inherit; font-size: 11.5px; cursor: pointer; padding: 0; }
+        .linkbtn:hover { color: var(--text-2); text-decoration: underline; }
+
+        /* ---- sidebar ---- */
+        .side {
+            border-left: 1px solid var(--border-soft); background: var(--surface);
+            padding: 16px; display: flex; flex-direction: column; gap: 14px;
+            position: sticky; top: 0; height: 100dvh; overflow-y: auto;
+        }
+        @media (max-width: 940px) {
+            .side {
+                position: fixed; inset: 0 0 0 auto; width: min(320px, 86vw); height: 100dvh;
+                z-index: 20; transform: translateX(100%); transition: transform .22s ease;
+                box-shadow: -16px 0 40px rgba(0,0,0,.28);
+            }
+            .side.open { transform: none; }
+            .scrim {
+                position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 19;
+                opacity: 0; pointer-events: none; transition: opacity .22s;
+            }
+            .scrim.open { opacity: 1; pointer-events: auto; }
+        }
+        @media (min-width: 941px) { .scrim { display: none; } }
+
+        .side h2 {
+            font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+            color: var(--muted); margin: 0; font-weight: 600;
+        }
+        .side-head { display: flex; align-items: center; justify-content: space-between; }
+
+        #fileInput { display: none; }
+
+        /* Drop overlay covers the whole window, so files can be dropped
+           anywhere rather than onto one small target. */
+        .dropveil {
+            position: fixed; inset: 0; z-index: 40;
+            background: color-mix(in srgb, var(--bg) 82%, transparent);
+            backdrop-filter: blur(3px);
+            display: grid; place-items: center;
+            opacity: 0; pointer-events: none; transition: opacity .15s;
+        }
+        .dropveil.show { opacity: 1; pointer-events: auto; }
+        .dropveil .box {
+            border: 2px dashed var(--accent); border-radius: var(--r-lg);
+            padding: 40px 56px; text-align: center; color: var(--text);
+            background: var(--surface); font-size: 15px;
+        }
+        .dropveil .box span { font-size: 30px; display: block; margin-bottom: 10px; }
+        .dropveil .box small { color: var(--muted); font-size: 12px; }
+
+        #docList { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 5px; }
+        #docList li {
+            display: flex; align-items: center; gap: 9px; padding: 8px 9px;
+            border-radius: var(--r-sm); font-size: 13px; transition: background .15s;
+        }
+        #docList li:hover { background: var(--surface-2); }
+        #docList .fic { flex: 0 0 auto; font-size: 13px; opacity: .75; }
+        #docList .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+        #docList .cnt { color: var(--muted); font-size: 11px; white-space: nowrap; }
+        #docList .del {
+            background: none; border: none; color: var(--muted); cursor: pointer;
+            font-size: 16px; line-height: 1; width: 26px; height: 26px; border-radius: 6px;
+            padding: 0; opacity: 0; transition: opacity .15s, color .15s, background .15s;
+        }
+        #docList li:hover .del, #docList .del:focus-visible { opacity: 1; }
+        #docList .del:hover { color: var(--danger); background: var(--danger-soft); }
+        .empty-docs { color: var(--muted); font-size: 12.5px; padding: 2px; }
+
+        #uploadStatus { font-size: 12px; min-height: 15px; overflow-wrap: anywhere; }
+        #uploadStatus .ok { color: var(--ok); }
+        #uploadStatus .err { color: var(--danger); }
+        .bar { height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; display: none; }
+        .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+        .hint { font-size: 11px; color: var(--muted); line-height: 1.55; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+
+        .typing { display: inline-flex; gap: 4px; padding: 6px 0; }
+        .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bounce 1.3s infinite; }
+        .typing i:nth-child(2) { animation-delay: .16s; }
+        .typing i:nth-child(3) { animation-delay: .32s; }
+        @keyframes bounce { 0%,60%,100% { opacity: .25; transform: translateY(0) } 30% { opacity: 1; transform: translateY(-3px) } }
+
+        ::-webkit-scrollbar { width: 9px; height: 9px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+        ::-webkit-scrollbar-track { background: transparent; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <div class="main">
+        <div class="topbar">
+            <div class="brand"><span class="mark">AI</span> Chatbot with RAG</div>
+            <div class="top-actions">
+                <span class="pill" id="status" title=""><span class="dot"></span><span class="label" id="statusText">connecting</span></span>
+                <button class="iconbtn" id="themeBtn" aria-label="Switch theme">🌙</button>
+                <button class="iconbtn kb-toggle" id="kbToggle" aria-label="Knowledge base">☰</button>
+            </div>
+        </div>
+
+        <div class="thread" id="thread">
+            <div class="thread-inner" id="threadInner">
+                <div class="empty" id="empty">
+                    <h2>What can I help you with?</h2>
+                    <p>Ask anything, drop in a link, or upload a document to ask about it.</p>
+                    <div class="chips">
+                        <button class="chip">Summarise my uploaded documents</button>
+                        <button class="chip">What's the latest Python release?</button>
+                        <button class="chip">Calculate 18% of 2,340</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="composer-wrap">
+            <div class="composer">
+                <button class="attach" id="attachBtn" aria-label="Attach a document" title="Upload a document">+</button>
+                <textarea id="userInput" rows="1" placeholder="Ask anything…" enterkeyhint="send"></textarea>
+                <button class="send" id="sendBtn" aria-label="Send">↑</button>
+            </div>
+            <div class="composer-foot">
+                <span id="docCount"></span>
+                <button class="linkbtn" id="resetBtn">Clear conversation</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="scrim" id="scrim"></div>
+    <div class="dropveil" id="dropveil">
+        <div class="box">
+            <span>⬆</span>
+            Drop files to add them<br>
+            <small>PDF, DOCX, TXT, MD, CSV, JSON · 25 MB max</small>
+        </div>
+    </div>
+
+    <aside class="side" id="side">
+        <div class="side-head">
+            <h2>Knowledge base</h2>
+            <span style="display:flex;gap:4px">
+                <button class="iconbtn" id="addBtn" aria-label="Add documents" title="Add documents"
+                        style="width:28px;height:28px;font-size:17px;font-weight:300">+</button>
+                <button class="iconbtn kb-toggle" id="kbClose" aria-label="Close" style="width:28px;height:28px">×</button>
+            </span>
+        </div>
+        <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.log">
+        <div class="bar" id="bar"><i></i></div>
+        <div id="uploadStatus"></div>
+        <ul id="docList"></ul>
+        <div class="hint">
+            PDF, DOCX, TXT, MD, CSV, JSON · 25&nbsp;MB max.<br>
+            Scanned PDFs are images — OCR them first.<span id="backendNote"></span>
+        </div>
+    </aside>
+</div>
+
+<script>
+    const SESSION_ID = "web-" + Math.random().toString(36).slice(2, 10);
+    const $ = id => document.getElementById(id);
+    const threadInner = $("threadInner"), empty = $("empty"),
+          input = $("userInput"), sendBtn = $("sendBtn"), resetBtn = $("resetBtn"),
+          statusEl = $("status"), statusText = $("statusText"), docCount = $("docCount"),
+          fileInput = $("fileInput"), uploadStatus = $("uploadStatus"),
+          docList = $("docList"), bar = $("bar"), backendNote = $("backendNote"),
+          themeBtn = $("themeBtn"), side = $("side"), scrim = $("scrim"),
+          kbToggle = $("kbToggle"), kbClose = $("kbClose"),
+          attachBtn = $("attachBtn"), addBtn = $("addBtn"), dropveil = $("dropveil");
+
+    // The window scrolls, not an inner div -- so scroll the window.
+    function scrollToBottom(smooth = true) {
+        window.scrollTo({
+            top: document.documentElement.scrollHeight,
+            behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches
+                ? "smooth" : "auto"
+        });
+    }
+
+    /* theme: auto -> light -> dark */
+    const THEMES = ["auto", "light", "dark"];
+    const ICON = { auto: "🌗", light: "☀️", dark: "🌙" };
+    const LABEL = { auto: "Theme: system", light: "Theme: light", dark: "Theme: dark" };
+    let theme = "auto";
+    try { theme = localStorage.getItem("chatbot-theme") || "auto"; } catch {}
+    if (!THEMES.includes(theme)) theme = "auto";
+    function applyTheme(t) {
+        document.documentElement.setAttribute("data-theme", t);
+        themeBtn.textContent = ICON[t];
+        themeBtn.title = LABEL[t];
+        themeBtn.setAttribute("aria-label", LABEL[t]);
+        try { localStorage.setItem("chatbot-theme", t); } catch {}
+    }
+    applyTheme(theme);
+    themeBtn.onclick = () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]; applyTheme(theme); };
+
+    /* mobile sidebar */
+    const openSide = o => { side.classList.toggle("open", o); scrim.classList.toggle("open", o); };
+    kbToggle.onclick = () => openSide(!side.classList.contains("open"));
+    kbClose.onclick = () => openSide(false);
+    scrim.onclick = () => openSide(false);
+
+    /* auto-growing composer */
+    function grow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 168) + "px"; }
+    input.addEventListener("input", grow);
+
+    // textContent, never innerHTML: message text is untrusted.
+    function addMessage(who, text, opts = {}) {
+        if (empty && empty.parentNode) empty.remove();
+        const turn = document.createElement("div");
+        turn.className = "turn " + (opts.cssClass === "error" ? "bot err" : who);
+
+        const av = document.createElement("div");
+        av.className = "avatar";
+        av.textContent = who === "user" ? "You" .slice(0,1) : "AI";
+
+        const bub = document.createElement("div");
+        bub.className = "bubble";
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const name = document.createElement("span");
+        name.textContent = who === "user" ? "You" : "Assistant";
+        meta.appendChild(name);
+        if (opts.badge) {
+            const t = document.createElement("span");
+            t.className = "tag"; t.textContent = opts.badge;
+            meta.appendChild(t);
+        }
+        const body = document.createElement("div");
+        body.className = "text";
+        if (opts.typing) {
+            body.className = "typing";
+            body.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
+        } else {
+            body.textContent = text;
+        }
+        bub.append(meta, body);
+        turn.append(av, bub);
+        threadInner.appendChild(turn);
+        requestAnimationFrame(() => scrollToBottom());
+        return turn;
+    }
+
+    async function checkHealth() {
+        try {
+            const h = await (await fetch("/api/health")).json();
+            statusEl.className = "pill " + (h.demo_mode ? "demo" : "live");
+            statusText.textContent = h.demo_mode ? "demo mode" : h.provider;
+            statusEl.title = h.demo_mode ? (h.key_problem || "No API key") : `${h.provider} · ${h.model}`;
+            docCount.textContent = h.vector_store_available
+                ? `${h.documents_indexed} chunk(s) · ${h.vector_store_backend === "bm25" ? "keyword" : "semantic"} search`
+                : "vector store offline";
+            backendNote.textContent = h.vector_store_backend === "bm25"
+                ? " Keyword search — pip install chromadb for semantic." : "";
+        } catch { statusText.textContent = "offline"; }
+    }
+
+    const ICONS = { ".pdf": "📕", ".docx": "📘", ".txt": "📄", ".md": "📝", ".csv": "📊", ".json": "🗂", ".log": "📄" };
+
+    async function loadDocuments() {
+        try {
+            const d = await (await fetch("/api/documents")).json();
+            docList.replaceChildren();
+            if (!d.documents.length) {
+                const li = document.createElement("li");
+                li.className = "empty-docs";
+                li.textContent = d.vector_store_available ? "Nothing uploaded yet." : "Vector store offline.";
+                docList.appendChild(li);
+                return;
+            }
+            for (const doc of d.documents) {
+                const li = document.createElement("li");
+                const ic = document.createElement("span");
+                ic.className = "fic"; ic.textContent = ICONS[doc.suffix] || "📄";
+                const nm = document.createElement("span");
+                nm.className = "name"; nm.textContent = doc.source; nm.title = doc.source;
+                const ct = document.createElement("span");
+                ct.className = "cnt"; ct.textContent = doc.chunks;
+                const del = document.createElement("button");
+                del.className = "del"; del.textContent = "×";
+                del.setAttribute("aria-label", "Remove " + doc.source);
+                del.onclick = () => deleteDoc(doc.source);
+                li.append(ic, nm, ct, del);
+                docList.appendChild(li);
+            }
+        } catch {}
+    }
+
+    async function deleteDoc(source) {
+        if (!confirm(`Remove "${source}"?`)) return;
+        try {
+            const res = await fetch("/api/documents/" + encodeURIComponent(source), { method: "DELETE" });
+            const d = await res.json();
+            setStatus(res.ok ? `Removed ${source}` : (d.error || "Delete failed"), !res.ok);
+        } catch (e) { setStatus("Delete failed: " + e.message, true); }
+        loadDocuments(); checkHealth();
+    }
+
+    function setStatus(msg, isError = false) {
+        uploadStatus.replaceChildren();
+        const s = document.createElement("span");
+        s.className = isError ? "err" : "ok";
+        s.textContent = msg;
+        uploadStatus.appendChild(s);
+    }
+
+    const MAX_MB = 25;
+    function uploadOne(file) {
+        return new Promise(resolve => {
+            if (file.size === 0) return resolve({ name: file.name, error: "file is empty" });
+            if (file.size > MAX_MB * 1024 * 1024)
+                return resolve({ name: file.name, error: `${(file.size/1e6).toFixed(1)} MB exceeds the ${MAX_MB} MB limit` });
+            const form = new FormData();
+            form.append("files", file);
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "/api/upload");
+            xhr.timeout = 120000;
+            xhr.upload.onprogress = e => {
+                if (e.lengthComputable) bar.firstElementChild.style.width = (e.loaded/e.total*100) + "%";
+            };
+            xhr.onload = () => {
+                let d = null;
+                try { d = JSON.parse(xhr.responseText); } catch {}
+                if (!d) return resolve({ name: file.name, error: `HTTP ${xhr.status} (not JSON) — check the terminal` });
+                if (d.uploaded && d.uploaded.length) return resolve({ ok: d.uploaded[0] });
+                if (d.failed && d.failed.length) return resolve({ name: file.name, error: d.failed[0].error });
+                resolve({ name: file.name, error: d.error || `HTTP ${xhr.status}` });
+            };
+            xhr.onerror = () => resolve({ name: file.name, error: "connection dropped — check the terminal" });
+            xhr.ontimeout = () => resolve({ name: file.name, error: "timed out after 120s" });
+            xhr.send(form);
+        });
+    }
+
+    async function uploadFiles(files) {
+        if (!files || !files.length) return;
+        bar.style.display = "block";
+        const done = [], bad = [];
+        let i = 0;
+        for (const f of files) {
+            i++;
+            bar.firstElementChild.style.width = "0%";
+            setStatus(`Uploading ${f.name} (${i}/${files.length})…`);
+            const r = await uploadOne(f);
+            if (r.ok) done.push(r.ok); else bad.push(r);
+        }
+        bar.style.display = "none";
+        if (done.length) {
+            const chunks = done.reduce((a,u) => a + u.chunks, 0);
+            setStatus(`Indexed ${done.length} file(s), ${chunks} chunk(s).`);
+            addMessage("bot", `Added: ${done.map(u => u.saved_as).join(", ")}. Ask me about it.`);
+        }
+        if (bad.length) {
+            setStatus(bad.map(f => `${f.name}: ${f.error}`).join(" · "), true);
+            if (!done.length)
+                addMessage("bot", "Upload failed:\n" + bad.map(f => `• ${f.name} — ${f.error}`).join("\n"), { cssClass: "error" });
+        }
+        loadDocuments(); checkHealth();
+    }
+
+    attachBtn.onclick = () => fileInput.click();
+    addBtn.onclick = () => fileInput.click();
+    fileInput.onchange = () => { uploadFiles(fileInput.files); fileInput.value = ""; };
+
+    // Drop anywhere on the window. dragenter/dragleave fire for every child
+    // element, so count depth instead of toggling on each event.
+    let dragDepth = 0;
+    const hasFiles = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files");
+    window.addEventListener("dragenter", e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault(); dragDepth++; dropveil.classList.add("show");
+    });
+    window.addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); });
+    window.addEventListener("dragleave", e => {
+        if (!hasFiles(e)) return;
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (!dragDepth) dropveil.classList.remove("show");
+    });
+    window.addEventListener("drop", e => {
+        e.preventDefault();
+        dragDepth = 0; dropveil.classList.remove("show");
+        if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+    });
+
+    async function sendMessage() {
+        const text = input.value.trim();
+        if (!text) return;
+        addMessage("user", text);
+        input.value = ""; grow();
+        sendBtn.disabled = true;
+        const ph = addMessage("bot", "", { typing: true });
+        try {
+            const res = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: text, session_id: SESSION_ID })
+            });
+            const data = await res.json();
+            ph.remove();
+            if (!res.ok || data.error) addMessage("bot", data.error || `Request failed (${res.status})`, { cssClass: "error" });
+            else addMessage("bot", data.response ?? "(no reply)", { badge: data.used_rag ? "RAG" : null });
+        } catch (err) {
+            ph.remove();
+            addMessage("bot", "Network error: " + err.message, { cssClass: "error" });
+        } finally {
+            sendBtn.disabled = false; input.focus(); checkHealth();
+        }
+    }
+
+    async function resetSession() {
+        await fetch("/api/reset", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: SESSION_ID })
+        });
+        threadInner.replaceChildren();
+        addMessage("bot", "Conversation cleared. Your documents are still indexed.");
+    }
+
+    document.querySelectorAll(".chip").forEach(c => {
+        c.onclick = () => { input.value = c.textContent; grow(); sendMessage(); };
+    });
+
+    sendBtn.onclick = sendMessage;
+    resetBtn.onclick = resetSession;
+    input.addEventListener("keydown", e => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+
+    checkHealth();
+    loadDocuments();
+</script>
+</body>
+</html>
